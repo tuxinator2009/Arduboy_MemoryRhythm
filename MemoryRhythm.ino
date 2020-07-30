@@ -11,6 +11,12 @@ static const uint8_t ACTION_SLIDE_LEFT = 3;
 static const uint8_t ACTION_SLIDE_RIGHT = 4;
 static const uint8_t ACTION_RAISE_LEFT = 5;
 static const uint8_t ACTION_RAISE_RIGHT = 6;
+static const uint8_t ACTION_DONE = 7;
+
+static const uint8_t STATE_MAINMENU = 0;
+static const uint8_t STATE_LEARN = 1;
+static const uint8_t STATE_PLAY = 2;
+static const uint8_t STATE_DONE = 3;
 
 //Using Arduboy2 instead of Arduboy2Base for now so I can use arduboy.print for debug info
 Arduboy2 arduboy;
@@ -34,19 +40,24 @@ uint8_t jumpOffsets[] =
 	20, 19, 18, 16, 14, 11, 8, 4
 };
 
-uint32_t seed = 0x12345678;
+uint32_t startSeed;
+uint32_t currentSeed;
+uint32_t score = 0;
 uint8_t octave = 0;
-uint8_t action = 0;
+uint8_t action = ACTION_IDLE;
 uint8_t actionDuration = 0;
 uint8_t actionRate = 5;
-uint8_t increaseRate = (6 - actionRate) * 2;
+uint8_t increaseRate = 6 - actionRate;
 int8_t roadOffset = 0;
+uint8_t state = STATE_DONE;
+uint8_t numMoves = 3;
+uint8_t currentMove = 0;
 
 void rnd()
 {
-	seed ^= seed << 13;
-	seed ^= seed >> 7;
-	seed ^= seed << 17;
+	currentSeed ^= currentSeed << 13;
+	currentSeed ^= currentSeed >> 7;
+	currentSeed ^= currentSeed << 17;
 }
 
 void setup()
@@ -54,7 +65,7 @@ void setup()
 	arduboy.begin();
 	arduboy.clear();
 	arduboy.setFrameRate(60);
-	seed = arduboy.generateRandomSeed();
+	startSeed = currentSeed = arduboy.generateRandomSeed();
 }
 
 void loop()
@@ -63,41 +74,88 @@ void loop()
 		return;
 	if (actionDuration == 0)
 	{
-		/*action = 0;
-		arduboy.pollButtons();
-		for (uint8_t i = 1; i < 7; ++i)
+		if (state == STATE_LEARN)
 		{
-			if (arduboy.justPressed(actionButtons[i]))
-			{
-				actionDuration = 15;
-				action = i;
-			}
-		}*/
-		rnd();
-		action = (seed >> 1) % 6 + 1;
-		actionDuration = 15;
-		if (action == 0)
-			tones.noTone();
-		else
+			rnd();
+			action = (currentSeed >> 1) % 6 + 1;
+			actionDuration = 16;
 			tones.tone(notes[action - 1 + octave * 7] + TONE_HIGH_VOLUME);
+			++currentMove;
+			if (currentMove == numMoves)
+			{
+				state = STATE_PLAY;
+				currentMove = 0;
+				currentSeed = startSeed;
+			}
+		}
+		else if (state == STATE_PLAY)
+		{
+			action = 0;
+			arduboy.pollButtons();
+			for (uint8_t i = 1; i < 7; ++i)
+			{
+				if (arduboy.justPressed(actionButtons[i]))
+					action = i;
+			}
+			if (action != 0)
+			{
+				rnd();
+				if (action == (currentSeed >> 1) % 6 + 1)
+				{
+					tones.tone(notes[action - 1 + octave * 7] + TONE_HIGH_VOLUME);
+					actionDuration = 16;
+					++currentMove;
+					++score;
+					if (currentMove == numMoves)
+					{
+						currentSeed = startSeed;
+						score += numMoves;
+						currentMove = 0;
+						++numMoves;
+						--increaseRate;
+						if (increaseRate == 0 && actionRate > 1)
+						{
+							--actionRate;
+							++octave;
+							increaseRate = 6 - actionRate;
+						}
+						state = STATE_LEARN;
+					}
+				}
+				else
+				{
+					state = STATE_DONE;
+					action = ACTION_DONE;
+				}
+			}
+		}
+		else if (state == STATE_DONE)
+		{
+			if (!tones.playing())
+				tones.tone(notes[4] + TONE_HIGH_VOLUME, 100, notes[2] + TONE_HIGH_VOLUME, 100, notes[0] + TONE_HIGH_VOLUME, 100);
+			arduboy.pollButtons();
+			if (arduboy.justPressed(A_BUTTON|B_BUTTON))
+			{
+				startSeed = currentSeed = arduboy.generateRandomSeed();
+				score = 0;
+				octave = 0;
+				action = ACTION_IDLE;
+				actionDuration = 0;
+				actionRate = 5;
+				increaseRate = (6 - actionRate) * 2;
+				state = STATE_LEARN;
+				numMoves = 3;
+				currentMove = 0;
+			}
+		}
 	}
 	else if (arduboy.everyXFrames(actionRate))
 	{
 		--actionDuration;
-		if (actionDuration == 0)
-		{
-			--increaseRate;
-			if (increaseRate == 0 && actionRate > 1)
-			{
-				--actionRate;
-				++octave;
-				increaseRate = (6 - actionRate) * 2;
-			}
-		}
 		if (actionDuration <= 4)
 		{
 			tones.noTone();
-			if (action == ACTION_DUCK) //end ducking animation slightly early
+			if (action != ACTION_JUMP) //end ducking animation slightly early
 				action = ACTION_IDLE;
 		}
 		if (action == ACTION_SLIDE_LEFT)
@@ -112,15 +170,17 @@ void loop()
 	//Draw some debug info
 	arduboy.setCursor(0, 0);
 	//Always surround constant strings in F() in order to put them in PROGMEM and save precious RAM
-	arduboy.print(F("Octave: "));
-	arduboy.print(octave);
+	arduboy.print(F("Score: "));
+	arduboy.println(score);
+	arduboy.print(F("Speed: "));
+	arduboy.println(6 - actionRate);
+	//Draw the current action
+	sprites.drawSelfMasked(112, 0, icons, action);
 	//Draw the sprite
 	if (action == ACTION_JUMP)
 		sprites.drawSelfMasked(52, 24 - jumpOffsets[actionDuration], sprite, action);
 	else
 		sprites.drawSelfMasked(52, 24, sprite, action);
-	//Draw a horizontal line for the ground for now
-	arduboy.drawFastHLine(0, 55, 128);
 	//The screen is 16 tiles wide meaning at most 17 can be visible
 	for (uint8_t i = 0; i <= 17; ++i)
 		sprites.drawSelfMasked(i * 8 - roadOffset, 56, road, 0);
