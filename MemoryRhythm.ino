@@ -34,6 +34,7 @@ uint8_t jumpOffsets[] =
 	20, 19, 18, 16, 14, 11, 8, 4
 };
 
+uint32_t seed = 0x12345678;
 uint8_t octave = 0;
 uint8_t action = 0;
 uint8_t actionDuration = 0;
@@ -41,11 +42,19 @@ uint8_t actionRate = 5;
 uint8_t increaseRate = (6 - actionRate) * 2;
 int8_t roadOffset = 0;
 
+void rnd()
+{
+	seed ^= seed << 13;
+	seed ^= seed >> 7;
+	seed ^= seed << 17;
+}
+
 void setup()
 {
 	arduboy.begin();
 	arduboy.clear();
 	arduboy.setFrameRate(60);
+	seed = arduboy.generateRandomSeed();
 }
 
 void loop()
@@ -54,7 +63,7 @@ void loop()
 		return;
 	if (actionDuration == 0)
 	{
-		action = 0;
+		/*action = 0;
 		arduboy.pollButtons();
 		for (uint8_t i = 1; i < 7; ++i)
 		{
@@ -63,7 +72,10 @@ void loop()
 				actionDuration = 15;
 				action = i;
 			}
-		}
+		}*/
+		rnd();
+		action = (seed >> 1) % 6 + 1;
+		actionDuration = 15;
 		if (action == 0)
 			tones.noTone();
 		else
