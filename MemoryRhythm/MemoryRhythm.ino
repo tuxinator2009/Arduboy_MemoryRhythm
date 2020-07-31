@@ -53,7 +53,7 @@ uint8_t state = STATE_DONE;
 uint8_t numMoves = 3;
 uint8_t currentMove = 0;
 
-void rnd()
+void randomize()
 {
 	currentSeed ^= currentSeed << 13;
 	currentSeed ^= currentSeed >> 7;
@@ -76,17 +76,10 @@ void loop()
 	{
 		if (state == STATE_LEARN)
 		{
-			rnd();
+			randomize();
 			action = (currentSeed >> 1) % 6 + 1;
 			actionDuration = 16;
 			tones.tone(notes[action - 1 + octave * 7] + TONE_HIGH_VOLUME);
-			++currentMove;
-			if (currentMove == numMoves)
-			{
-				state = STATE_PLAY;
-				currentMove = 0;
-				currentSeed = startSeed;
-			}
 		}
 		else if (state == STATE_PLAY)
 		{
@@ -99,28 +92,12 @@ void loop()
 			}
 			if (action != 0)
 			{
-				rnd();
+				randomize();
 				if (action == (currentSeed >> 1) % 6 + 1)
 				{
 					tones.tone(notes[action - 1 + octave * 7] + TONE_HIGH_VOLUME);
 					actionDuration = 16;
-					++currentMove;
 					++score;
-					if (currentMove == numMoves)
-					{
-						currentSeed = startSeed;
-						score += numMoves;
-						currentMove = 0;
-						++numMoves;
-						--increaseRate;
-						if (increaseRate == 0 && actionRate > 1)
-						{
-							--actionRate;
-							++octave;
-							increaseRate = 6 - actionRate;
-						}
-						state = STATE_LEARN;
-					}
 				}
 				else
 				{
@@ -162,6 +139,30 @@ void loop()
 			--roadOffset;
 		else if (action == ACTION_SLIDE_RIGHT)
 			++roadOffset;
+		if (actionDuration == 0)
+		{
+			++currentMove;
+			if (currentMove == numMoves)
+			{
+				if (state == STATE_PLAY)
+				{
+					score += numMoves;
+					++numMoves;
+					--increaseRate;
+					if (increaseRate == 0 && actionRate > 1)
+					{
+						--actionRate;
+						++octave;
+						increaseRate = 6 - actionRate;
+					}
+					state = STATE_LEARN;
+				}
+				else
+					state = STATE_PLAY;
+				currentMove = 0;
+				currentSeed = startSeed;
+			}
+		}
 	}
 	if (roadOffset < 0)
 		roadOffset += 8;
